@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Range Maps Finder</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5d6673;
+    --border: #d9dde3; --accent: #2f6fdb; --accent-text: #ffffff;
+    --error: #c62828; --row: #f0f3f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b; --card: #1d2126; --text: #e6e9ed; --muted: #9aa3ae;
+      --border: #333a42; --accent: #5b93f0; --accent-text: #0b1220;
+      --error: #ef6b6b; --row: #232830;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
+  }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .field { margin-bottom: 16px; }
+  .row { display: flex; gap: 8px; }
+  input[type=text] {
+    flex: 1; min-width: 0; font: inherit; padding: 10px 12px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  select {
+    font: inherit; padding: 10px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .hint { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
+  .err { color: var(--error); font-size: 0.875rem; margin-top: 4px; min-height: 1.3em; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px;
+    border: 1px solid var(--accent); cursor: pointer;
+    background: var(--accent); color: var(--accent-text);
+  }
+  button.secondary { background: transparent; color: var(--accent); }
+  .options { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 16px; color: var(--muted); font-size: 0.9rem; }
+  .options label { display: inline; font-weight: 400; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  .point { color: var(--muted); margin: 0 0 12px; font-size: 0.9rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 0.8rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.name { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 600; overflow-wrap: anywhere; }
+  td.bounds { color: var(--muted); font-size: 0.85rem; }
+  .cellname { font-weight: 400; font-size: 0.8rem; color: var(--muted); }
+  tr:hover td { background: var(--row); }
+  .copy { padding: 2px 8px; font-size: 0.8rem; font-weight: 500; }
+  .note { color: var(--muted); font-size: 0.85rem; margin-top: 12px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 480px) { td.bounds { display: none; } th.bounds { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Range Maps Finder</h1>
+  <p class="sub">Enter a point in WGS 84 to see the names of the topographic map sheets that cover it, from 1:1 000 000 down to 1:10 000.</p>
+
+  <form class="card" id="form" novalidate>
+    <div class="field">
+      <label for="lat">Latitude</label>
+      <div class="row">
+        <input type="text" id="lat" inputmode="decimal" autocomplete="off" placeholder="50 27 0">
+        <select id="latHem" aria-label="Hemisphere"><option value="1">N</option><option value="-1">S</option></select>
+      </div>
+      <div class="err" id="latErr"></div>
+    </div>
+    <div class="field">
+      <label for="lon">Longitude</label>
+      <div class="row">
+        <input type="text" id="lon" inputmode="decimal" autocomplete="off" placeholder="30 31 0">
+        <select id="lonHem" aria-label="Hemisphere"><option value="1">E</option><option value="-1">W</option></select>
+      </div>
+      <div class="err" id="lonErr"></div>
+      <div class="hint">Separate degrees, minutes and seconds with spaces, or enter decimal degrees (50.45).</div>
+    </div>
+    <div class="actions">
+      <button type="submit">Calculate</button>
+      <button type="button" class="secondary" id="locate">Use my location</button>
+    </div>
+    <div class="options">
+      <span><input type="checkbox" id="cyr"> <label for="cyr">Cyrillic letters (А Б В Г)</label></span>
+    </div>
+  </form>
+
+  <section class="card" id="result" hidden>
+    <h2>List of ranges</h2>
+    <p class="point" id="point"></p>
+    <table>
+      <thead><tr><th>Scale</th><th>Sheet</th><th class="bounds">Bounds</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="note" id="note" hidden></p>
+  </section>
+</main>
+
+<script>
+// Sheet subdivision chain. Each level splits its parent sheet into an n×n grid,
+// numbered row by row from the north-west corner.
+const LEVELS = [
+  { scale: '1:500 000', parent: 0, n: 2,  label: i => LETTERS()[i] },
+  { scale: '1:200 000', parent: 0, n: 6,  label: i => roman(i + 1) },
+  { scale: '1:100 000', parent: 0, n: 12, label: i => String(i + 1) },
+  { scale: '1:50 000',  parent: 3, n: 2,  label: i => LETTERS()[i] },
+  { scale: '1:25 000',  parent: 4, n: 2,  label: i => LETTERS()[i].toLowerCase() },
+  { scale: '1:10 000',  parent: 5, n: 2,  label: i => String(i + 1) },
+];
+const cyr = document.getElementById('cyr');
+const LETTERS = () => cyr.checked ? ['А', 'Б', 'В', 'Г'] : ['A', 'B', 'C', 'D'];
+
+function roman(n) {
+  const map = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+  let s = '';
+  for (const [v, r] of map) while (n >= v) { s += r; n -= v; }
+  return s;
+}
+
+// Parse "D M S", "D M", "D" or decimal degrees. Returns degrees or an error string.
+function parseAngle(text, max) {
+  const t = text.trim().replace(',', '.');
+  if (!t) return { error: 'This field cannot be empty' };
+  const parts = t.split(/[\s°'"′″]+/).filter(Boolean);
+  if (parts.length > 3 || parts.some(p => !/^\d+(\.\d+)?$/.test(p))) {
+    return { error: 'Use numbers only: degrees, minutes and seconds separated by spaces' };
+  }
+  const [d, m = 0, s = 0] = parts.map(Number);
+  if (d > max) return { error: `Degree value is wrong (0–${max})` };
+  if (m >= 60 || (parts.length > 1 && !Number.isInteger(d))) return { error: 'Minute value is wrong' };
+  if (s >= 60 || (parts.length > 2 && !Number.isInteger(m))) return { error: 'Second value is wrong' };
+  const deg = d + m / 60 + s / 3600;
+  if (deg > max) return { error: `Degree value is wrong (0–${max})` };
+  return { value: deg };
+}
+
+function fmtDMS(deg, pos, neg) {
+  const h = deg < 0 ? neg : pos;
+  let s = Math.round(Math.abs(deg) * 3600 * 100) / 100;
+  const d = Math.floor(s / 3600); s -= d * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  s = Math.round(s * 100) / 100;
+  return `${d}°${String(m).padStart(2, '0')}′${String(s).padStart(2, '0')}″${h}`;
+}
+
+// All grid math is done in integer milli-arc-seconds so that points lying exactly
+// on a sheet edge (e.g. 48°20′00″) are never misplaced by floating-point error.
+const U = 3600 * 1000;           // units per degree
+const toUnits = deg => Math.round(deg * U);
+
+// Pick the cell of an n×n grid inside a 1:1 000 000 sheet.
+// a = |lat| offset from the sheet's equator-side edge, x = offset from its west edge.
+// A point on an edge belongs to the cell farther from the equator and farther east.
+function cell(n, a, x, south) {
+  const h = 4 * U / n, w = 6 * U / n;
+  const k = Math.min(n - 1, Math.floor(a / h));   // rows counted from the equator side
+  const c = Math.min(n - 1, Math.floor(x / w));
+  const r = south ? k : n - 1 - k;                // rows numbered from the north edge
+  return { r, c, k, h, w };
+}
+
+// Above 60° sheets are published joined along longitude: doubled from 60° to 76°,
+// quadrupled beyond 76° (except 1:200 000, tripled, and 1:500 000, which stays doubled).
+// Joined sheets never cross a sheet of the next smaller scale, so groups are aligned:
+// 1:100 000 joins an odd number with the next even one, 1:1 000 000 joins 35+36, 37–40, …
+// Indexes match the sheets list: 1:1M, 500k, 200k, 100k, 50k, 25k, 10k.
+const JOIN_DOUBLE = [2, 2, 2, 2, 2, 2, 2];
+const JOIN_QUAD   = [4, 2, 3, 4, 4, 4, 4];
+
+function compute(lat, lon) {
+  const latU = toUnits(lat), lonU = toUnits(lon);
+  const south = latU < 0, absU = Math.abs(latU);
+  // 1:1 000 000 — 4° latitude bands lettered A–V from the equator,
+  // 6° longitude columns numbered 1–60 eastward from 180°.
+  const band = Math.min(21, Math.floor(absU / (4 * U)));
+  const col = Math.min(60, Math.floor((lonU + 180 * U) / (6 * U)) + 1);
+  const a = absU - band * 4 * U, x = lonU + 180 * U - (col - 1) * 6 * U;
+  const sgn = south ? -1 : 1;
+  const west = (col - 1) * 6 - 180;
+  const boxOf = (k, c0, c1, h, w) => {
+    const e1 = sgn * (band * 4 * U + k * h), e2 = sgn * (band * 4 * U + (k + 1) * h);
+    return { n: Math.max(e1, e2) / U, s: Math.min(e1, e2) / U, w: west + c0 * w / U, e: west + c1 * w / U };
+  };
+  const letter = String.fromCharCode(65 + band);
+  const join = band >= 19 ? JOIN_QUAD : band >= 15 ? JOIN_DOUBLE : null;  // T+ = 76°, P+ = 60°
+  const sfx = !south ? '' : cyr.checked ? ' (Ю. П.)' : ' (S)';
+
+  // Each level is an n×n grid over the whole 1:1 000 000 sheet; a cell's label is its
+  // position inside its parent (grid position modulo the split factor).
+  const grids = [{ n: 1 }];
+  const labelAt = (j, r, c) => {
+    const lvl = LEVELS[j - 1];
+    return lvl.label((r % lvl.n) * lvl.n + c % lvl.n);
+  };
+  const singleName = (j, r, c) => {
+    if (j === 0) return letter + '-' + col;
+    const lvl = LEVELS[j - 1];
+    return singleName(lvl.parent, Math.floor(r / lvl.n), Math.floor(c / lvl.n)) + '-' + labelAt(j, r, c);
+  };
+  // Name of the joined sheet made of grid columns c0 … c0+g−1, e.g. T-35-133-В,Г,134-В,Г.
+  const joinedName = (j, r, c0, g) => {
+    const lvl = LEVELS[j - 1], parts = [];
+    for (let c = c0; c < c0 + g; c++) {
+      const pc = Math.floor(c / lvl.n), lbl = labelAt(j, r, c);
+      if (parts.length && parts[parts.length - 1].pc === pc) parts[parts.length - 1].labels.push(lbl);
+      else parts.push({ pc, labels: [lbl] });
+    }
+    const pr = Math.floor(r / lvl.n);
+    return parts.map((pt, i) => (i === 0 ? singleName(lvl.parent, pr, pt.pc) : labelAt(lvl.parent, pr, pt.pc))
+                                + '-' + pt.labels.join(',')).join(',');
+  };
+
+  const g0 = join ? join[0] : 1, first = Math.floor((col - 1) / g0) * g0 + 1;
+  const cols1M = Array.from({ length: g0 }, (_, i) => first + i);
+  const sheets = [{
+    scale: '1:1 000 000', cell: letter + '-' + col, name: letter + '-' + cols1M.join(','),
+    box: { ...boxOf(0, 0, 1, 4 * U, 6 * U), w: (first - 1) * 6 - 180, e: (first - 1 + g0) * 6 - 180 },
+  }];
+  LEVELS.forEach((lvl, i) => {
+    const j = i + 1, n = grids[lvl.parent].n * lvl.n;
+    grids[j] = { n };
+    const g = cell(n, a, x, south), size = join ? join[j] : 1;
+    const c0 = Math.floor(g.c / size) * size;
+    sheets.push({
+      scale: lvl.scale,
+      cell: singleName(j, g.r, g.c),
+      name: size > 1 ? joinedName(j, g.r, c0, size) : singleName(j, g.r, g.c),
+      box: boxOf(g.k, c0, c0 + size, g.h, g.w),
+    });
+  });
+  // name: the sheet as published (joined above 60°); cell: the single grid cell.
+  return sheets.map(s => ({ scale: s.scale, name: s.name + sfx, cell: s.cell + sfx, box: s.box }));
+}
+
+const $ = id => document.getElementById(id);
+let last = null;
+
+function show(lat, lon) {
+  last = { lat, lon };
+  const sheets = compute(lat, lon);
+  $('point').textContent = `${fmtDMS(lat, 'N', 'S')}, ${fmtDMS(lon, 'E', 'W')}`;
+  const tbody = $('rows');
+  tbody.replaceChildren();
+  for (const s of sheets) {
+    const tr = document.createElement('tr');
+    const b = s.box;
+    tr.innerHTML = `<td>${s.scale}</td><td class="name"></td>
+      <td class="bounds">${fmtDMS(b.s, 'N', 'S')} – ${fmtDMS(b.n, 'N', 'S')}<br>${fmtDMS(b.w, 'E', 'W')} – ${fmtDMS(b.e, 'E', 'W')}</td>
+      <td><button type="button" class="secondary copy">Copy</button></td>`;
+    tr.querySelector('.name').textContent = s.name;
+    if (s.cell !== s.name) {
+      const sub = document.createElement('div');
+      sub.className = 'cellname';
+      sub.textContent = 'grid cell ' + s.cell;
+      tr.querySelector('.name').append(sub);
+    }
+    tr.querySelector('.copy').addEventListener('click', e => {
+      navigator.clipboard?.writeText(s.name).then(() => {
+        e.target.textContent = 'Copied';
+        setTimeout(() => (e.target.textContent = 'Copy'), 1200);
+      });
+    });
+    tbody.append(tr);
+  }
+  const note = $('note');
+  note.hidden = Math.abs(lat) < 60;
+  note.textContent = 'Beyond 60° latitude sheets are published joined along longitude: doubled up to 76°, quadrupled beyond it (1:200 000 tripled, 1:500 000 doubled). Bounds are for the joined sheet; “grid cell” is the single sheet that contains the point.';
+  $('result').hidden = false;
+}
+
+$('form').addEventListener('submit', e => {
+  e.preventDefault();
+  const la = parseAngle($('lat').value, 88), lo = parseAngle($('lon').value, 180);
+  $('latErr').textContent = la.error || '';
+  $('lonErr').textContent = lo.error || '';
+  if (la.error || lo.error) return;
+  const lat = la.value * Number($('latHem').value);
+  const lon = lo.value * Number($('lonHem').value);
+  show(lat, lon);
+  try { history.replaceState(null, '', `#${lat.toFixed(6)},${lon.toFixed(6)}`); } catch {}
+});
+
+cyr.addEventListener('change', () => last && show(last.lat, last.lon));
+
+function fill(lat, lon) {
+  $('lat').value = Math.abs(lat).toFixed(6).replace(/\.?0+$/, '');
+  $('lon').value = Math.abs(lon).toFixed(6).replace(/\.?0+$/, '');
+  $('latHem').value = lat < 0 ? '-1' : '1';
+  $('lonHem').value = lon < 0 ? '-1' : '1';
+  $('form').requestSubmit();
+}
+
+$('locate').addEventListener('click', () => {
+  if (!navigator.geolocation) { $('latErr').textContent = 'Location is not available in this browser'; return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => fill(pos.coords.latitude, pos.coords.longitude),
+    () => { $('latErr').textContent = 'Could not get your location'; }
+  );
+});
+
+// Shareable links: index.html#50.45,30.516667
+const m = location.hash.match(/^#(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
+if (m && Math.abs(+m[1]) <= 88 && Math.abs(+m[2]) <= 180) fill(+m[1], +m[2]);
+</script>
+</body>
+</html>
